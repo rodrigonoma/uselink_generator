@@ -1,0 +1,111 @@
+<div class="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+  <!-- Header -->
+  <header class="bg-white/80 backdrop-blur-md border-b border-white/20 px-6 py-4 sticky top-0 z-50">
+    <div class="flex items-center justify-between max-w-7xl mx-auto">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500 rounded-xl flex items-center justify-center shadow-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 text-white"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <span class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          Uselink Escalável
+        </span>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <button class="relative rounded-full h-12 w-12 bg-transparent hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.36 14H13.64a2 2 0 0 1 2 2v3H8v-3a2 0 0 1 2-2z"/></svg>
+          <div class="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-r from-pink-500 to-red-500 rounded-full text-xs text-white flex items-center justify-center">
+            3
+          </div>
+        </button>
+        <button class="rounded-full h-12 w-12 bg-transparent hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="max-w-7xl mx-auto p-8 flex flex-col items-center justify-center min-h-[calc(100vh-80px)]">
+    <div class="text-center mb-16">
+      <h1 class="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500 bg-clip-text text-transparent mb-6">
+        Como você deseja criar seu anúncio?
+      </h1>
+      <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+        Escolha a opção que melhor se adapta ao seu conhecimento e necessidades para criar anúncios impactantes para
+        seu empreendimento imobiliário.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-5xl">
+      <!-- Botão para criação com IA - PRIMEIRO e com MAIS DESTAQUE -->
+      <a routerLink="/ai-assistant" class="w-full">
+        <div class="h-full bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200 rounded-3xl hover:shadow-2xl transition-all duration-300 hover:scale-105 cursor-pointer overflow-hidden group relative">
+          <div class="p-0">
+            <div class="bg-gradient-to-r from-purple-500 to-pink-500 h-4 w-full group-hover:h-6 transition-all"></div>
+            <!-- Badge de destaque -->
+            <div class="absolute top-6 right-6 bg-gradient-to-r from-yellow-400 to-orange-400 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">
+              🔥 RECOMENDADO
+            </div>
+            <div class="p-10 flex flex-col items-center text-center h-full">
+              <div class="w-20 h-20 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mb-6 shadow-lg">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="text-white"
+                >
+                  <path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"></path>
+                  <path d="M12 6a4 4 0 0 0-4 4v6l2-2 1.5 1.5L12 15l1.5 1.5L15 15l2 2v-7a4 4 0 0 0-4-4z"></path>
+                </svg>
+              </div>
+              <h2 class="text-2xl font-bold text-gray-900 mb-4">Não entendo sobre anúncios</h2>
+              <p class="text-lg text-gray-600 mb-6">
+                Prefiro que a Inteligência Artificial crie anúncios otimizados baseados nas minhas informações.
+              </p>
+              <div class="mt-auto">
+                <button class="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-8 py-6 rounded-xl text-lg shadow-lg">
+                  Criar com IA ✨
+                </button>
+              </div>
+              <p class="text-sm text-purple-600 mt-4 font-medium">
+                Perfeito para quem busca resultados sem conhecimento técnico
+              </p>
+            </div>
+          </div>
+        </div>
+      </a>
+
+      <!-- Botão para criação manual - CORRIGIDO O LINK -->
+      <a routerLink="/" class="w-full">
+        <div class="h-full bg-white/70 backdrop-blur border-white/20 rounded-3xl hover:shadow-xl transition-all duration-300 hover:scale-102 cursor-pointer overflow-hidden group">
+          <div class="p-0">
+            <div class="bg-gradient-to-r from-blue-500 to-blue-600 h-3 w-full group-hover:h-4 transition-all"></div>
+            <div class="p-10 flex flex-col items-center text-center h-full">
+              <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-10 w-10 text-blue-600"><path d="M22 12H2"/><path d="m15 5 7 7-7 7"/></svg>
+              </div>
+              <h2 class="text-2xl font-bold text-gray-900 mb-4">Entendo sobre anúncios</h2>
+              <p class="text-lg text-gray-600 mb-6">
+                Quero eu mesmo criar meus anúncios utilizando os templates e ferramentas disponíveis.
+              </p>
+              <div class="mt-auto">
+                <button
+                  class="border-blue-200 text-blue-700 hover:bg-blue-50 px-8 py-6 rounded-xl text-lg bg-transparent border focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  Criar com Templates
+                </button>
+              </div>
+              <p class="text-sm text-gray-500 mt-4">Ideal para quem já tem experiência com marketing digital</p>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+</div>

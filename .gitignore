@@ -7,9 +7,16 @@
 /bazel-out
 
 # Node
+/backend/node_modules
 /node_modules
+/imgly_novo
 npm-debug.log
 yarn-error.log
+
+**/.env
+**/.env.local
+**/.env.*.local
+/backend/env
 
 # IDEs and editors
 .idea/
