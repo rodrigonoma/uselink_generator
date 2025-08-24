@@ -35,16 +35,19 @@ export class PSDService {
   ): Promise<ImageGenerationResult[]> {
     logger.info('Starting campaign image generation', {
       profile: analysis.profile,
-      templateCount: analysis.templateRecommendations.length
+      templateCount: analysis.templateRecommendations.length,
+      uploadedImages: productInfo.images // Add this line
     });
 
     const results: ImageGenerationResult[] = [];
 
     for (let i = 0; i < analysis.templateRecommendations.length; i++) {
       const templateName = analysis.templateRecommendations[i];
+      const currentImageUri = productInfo.images[i % productInfo.images.length]; // Cycle through images
+
       try {
         const templatePath = this.getTemplatePath(templateName);
-        
+
         if (!fs.existsSync(templatePath)) {
           logger.warn(`Template not found: ${templatePath}`);
           continue;
@@ -52,13 +55,14 @@ export class PSDService {
 
         const outputFileName = `${analysis.profile}_${templateName}_${Date.now()}.png`;
         const outputPath = path.join(config.output.directory, outputFileName);
-        
+
         const result = await this.generateImageFromTemplate(
           templatePath,
           productInfo,
           analysis,
           outputPath,
-          i
+          i, // Pass the correct templateIndex
+          currentImageUri
         );
 
         if (result.success) {
@@ -68,7 +72,7 @@ export class PSDService {
         results.push(result);
 
       } catch (error) {
-        logger.error(`Error generating image for template ${templateName}:`, error);
+        logger.error(`Error generating image for template ${templateName} with image ${currentImageUri}:`, error);
         results.push({
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error',
@@ -100,7 +104,8 @@ export class PSDService {
     productInfo: ProductInfo,
     analysis: AIAnalysisResult,
     outputPath: string,
-    templateIndex: number = 0
+    templateIndex: number = 0,
+    currentImageUri?: string // New parameter
   ): Promise<ImageGenerationResult> {
     logger.info(`[Optimized] Generating image from template: ${templatePath}`);
 
@@ -182,7 +187,7 @@ export class PSDService {
       }
       logger.info(`Extracted ${Object.keys(extractedData).length} named layers from scene.`);
 
-      const modifiedData = this.applyProductDataToLayers(extractedData, productInfo, analysis, templateIndex);
+      const modifiedData = this.applyProductDataToLayers(extractedData, productInfo, analysis, templateIndex, currentImageUri);
       await this.applyLayerModifications(instance, modifiedData, analysis);
 
       const pageBlock = instance.block.findByType('page')[0];
@@ -215,7 +220,8 @@ export class PSDService {
     extractedData: PSDExtractedData,
     productInfo: ProductInfo,
     analysis: AIAnalysisResult,
-    templateIndex: number = 0
+    templateIndex: number = 0,
+    currentImageUri?: string // New parameter
   ): PSDExtractedData {
     logger.info('Applying product data to layers using template mappings', { templateIndex });
 
@@ -246,12 +252,11 @@ export class PSDService {
       imageLayers.forEach((logicalName, index) => {
         const psdLayerName = layerMappings[logicalName];
         if (modifiedData[psdLayerName]) {
-          const imageIndex = index % productInfo.images.length; // Cycle through product images
-          const imageUri = productInfo.images[imageIndex];
+          const imageToUse = currentImageUri || productInfo.images[index % productInfo.images.length]; // Use currentImageUri if provided, else cycle
           const layer = modifiedData[psdLayerName];
           if (!layer.fill) layer.fill = {};
-          layer.fill['fill/image/imageFileURI'] = imageUri;
-          logger.info(`Set image for ${logicalName} (${psdLayerName}) to ${imageUri.substring(0, 50)}...`);
+          layer.fill['fill/image/imageFileURI'] = imageToUse;
+          logger.info(`Set image for ${logicalName} (${psdLayerName}) to ${imageToUse.substring(0, 50)}... (currentImageUri: ${currentImageUri}, productInfo.images[${index % productInfo.images.length}]: ${productInfo.images[index % productInfo.images.length]})`); // Add more details to the log
         }
       });
     }
@@ -376,11 +381,11 @@ export class PSDService {
     }
     
     // Apply colors to text elements
-    if (layer.fill && (layerLower.includes('title') || layerLower.includes('cta') || layerLower.includes('botao'))) {
-      layer.fill.r = colorToUse.r;
-      layer.fill.g = colorToUse.g;
-      layer.fill.b = colorToUse.b;
-      layer.fill.a = colorToUse.a;
+    if (layerLower.includes('title') || layerLower.includes('cta') || layerLower.includes('botao')) {
+      if (!layer.fill) {
+        layer.fill = {};
+      }
+      layer.fill['fill/color/value'] = colorToUse;
       logger.debug(`Applied AI color to ${layer.name}:`, colorToUse);
     }
 
@@ -425,13 +430,11 @@ export class PSDService {
           instance.block.setFloat(blockId, 'text/fontSize', modifications.fontSize);
         }
 
-        if (modifications.fill && typeof modifications.fill === 'object' && 'r' in modifications.fill) {
+        if (modifications.fill && modifications.fill['fill/color/value']) {
           const fillBlock = instance.block.getFill(blockId);
           if (fillBlock) {
-            instance.block.setFloat(fillBlock, 'fill/solid/color/r', modifications.fill.r);
-            instance.block.setFloat(fillBlock, 'fill/solid/color/g', modifications.fill.g);
-            instance.block.setFloat(fillBlock, 'fill/solid/color/b', modifications.fill.b);
-            instance.block.setFloat(fillBlock, 'fill/solid/color/a', modifications.fill.a);
+            const color = modifications.fill['fill/color/value'];
+            instance.block.setColor(fillBlock, 'fill/color/value', color);
           }
         }
 
@@ -448,12 +451,12 @@ export class PSDService {
           const logicalName = Object.keys(layerMappings).find(key => layerMappings[key] === blockName);
           if (logicalName && rotationSuggestions[logicalName] !== undefined) {
             const angle = rotationSuggestions[logicalName];
-            instance.block.setFloat(blockId, 'transform/rotation', angle);
+            instance.block.setFloat(blockId, 'rotation', angle); // Line 455
             logger.info(`Applied AI rotation of ${angle}° to ${logicalName} (${blockName})`);
           }
         }
 
-        await this.applyAdvancedEffects(instance, blockId, blockName, analysis);
+        await this.applyAdvancedEffects(instance, blockId, blockName, modifications, analysis); // Pass modifications
         await this.applyDynamicPositioning(instance, blockId, blockName, analysis);
 
         if (modifications.transform) {
@@ -472,7 +475,7 @@ export class PSDService {
     logger.info('Finished applying layer modifications');
   }
 
-  private async applyAdvancedEffects(instance: any, blockId: any, blockName: string, analysis?: AIAnalysisResult): Promise<void> {
+  private async applyAdvancedEffects(instance: any, blockId: any, blockName: string, modifications: PSDLayerData, analysis?: AIAnalysisResult): Promise<void> { // Add modifications parameter
     const layerLower = blockName.toLowerCase();
     
     // Get AI visual effects suggestions
@@ -499,22 +502,16 @@ export class PSDService {
         instance.block.setFloat(blockId, 'dropShadow/offset/x', 2);
         instance.block.setFloat(blockId, 'dropShadow/offset/y', 2);
         // Set shadow color (dark semi-transparent)
-        instance.block.setFloat(blockId, 'dropShadow/color/r', 0);
-        instance.block.setFloat(blockId, 'dropShadow/color/g', 0);
-        instance.block.setFloat(blockId, 'dropShadow/color/b', 0);
-        instance.block.setFloat(blockId, 'dropShadow/color/a', 0.4);
+        instance.block.setColor(blockId, 'dropShadow/color', { r: 0, g: 0, b: 0, a: 0.4 });
         logger.info(`Applied drop shadow to CTA: ${blockName}`);
       }
 
       // Apply text stroke for better readability
-      if ((layerLower.includes('titulo') || layerLower.includes('title') || layerLower.includes('preco')) && effects.textStroke) {
+      if (modifications.type === '//ly.img.ubq/text' && (layerLower.includes('titulo') || layerLower.includes('title') || layerLower.includes('preco')) && effects.textStroke) { // Add type check
         instance.block.setBool(blockId, 'stroke/enabled', true);
         instance.block.setFloat(blockId, 'stroke/width', effects.strokeWidth);
         // White stroke for contrast
-        instance.block.setFloat(blockId, 'stroke/color/r', 1);
-        instance.block.setFloat(blockId, 'stroke/color/g', 1);
-        instance.block.setFloat(blockId, 'stroke/color/b', 1);
-        instance.block.setFloat(blockId, 'stroke/color/a', 0.8);
+        instance.block.setColor(blockId, 'stroke/color', { r: 1, g: 1, b: 1, a: 0.8 });
         logger.info(`Applied text stroke to: ${blockName}`);
       }
 
@@ -532,7 +529,7 @@ export class PSDService {
       }
 
       // Enhanced positioning for better hierarchy
-      if (layerLower.includes('titulo_principal') || layerLower.includes('title_main')) {
+      if (modifications.type === '//ly.img.ubq/text' && (layerLower.includes('titulo_principal') || layerLower.includes('title') || layerLower.includes('title_main'))) { // Add type check
         // Increase font size for main titles
         const currentFontSize = instance.block.getFloat(blockId, 'text/fontSize') || 24;
         instance.block.setFloat(blockId, 'text/fontSize', currentFontSize * 1.2);
@@ -540,7 +537,7 @@ export class PSDService {
       }
 
       // Price elements get special treatment
-      if (layerLower.includes('preco') && !layerLower.includes('titulo')) {
+      if (modifications.type === '//ly.img.ubq/text' && layerLower.includes('preco') && !layerLower.includes('titulo')) { // Add type check
         // Make price more prominent
         const currentFontSize = instance.block.getFloat(blockId, 'text/fontSize') || 20;
         instance.block.setFloat(blockId, 'text/fontSize', currentFontSize * 1.1);
@@ -548,13 +545,9 @@ export class PSDService {
         // Add subtle glow effect through stroke
         instance.block.setBool(blockId, 'stroke/enabled', true);
         instance.block.setFloat(blockId, 'stroke/width', 1);
-        instance.block.setFloat(blockId, 'stroke/color/r', 1);
-        instance.block.setFloat(blockId, 'stroke/color/g', 0.9);
-        instance.block.setFloat(blockId, 'stroke/color/b', 0.3);
-        instance.block.setFloat(blockId, 'stroke/color/a', 0.6);
+        instance.block.setColor(blockId, 'stroke/color', { r: 1, g: 0.9, b: 1, a: 0.6 });
         logger.info(`Enhanced price styling for: ${blockName}`);
       }
-
     } catch (error) {
       logger.warn(`Failed to apply advanced effects to ${blockName}:`, error);
     }

@@ -1,4 +1,6 @@
 import OpenAI from 'openai';
+import fs from 'fs';
+import path from 'path';
 import config from '../config';
 import logger from '../utils/logger';
 import { ProductInfo, AIAnalysisResult } from '../models';
@@ -15,15 +17,19 @@ export class AIService {
   async analyzeProductProfile(productInfo: ProductInfo): Promise<AIAnalysisResult> {
     logger.info('Starting AI analysis for product profile');
 
-    try {
-      const prompt = this.buildAnalysisPrompt(productInfo);
-      
-      const completion = await this.openai.chat.completions.create({
-        model: config.openai.model,
-        messages: [
-          {
-            role: 'system',
-            content: `Você é um especialista em marketing imobiliário, design gráfico e comunicação visual. Sua tarefa é analisar informações de produtos imobiliários e criar uma estratégia completa de comunicação visual.
+    const MAX_RETRIES = 3;
+    let retries = 0;
+
+    while (retries < MAX_RETRIES) {
+      try {
+        const prompt = this.buildAnalysisPrompt(productInfo);
+        
+        const completion = await this.openai.chat.completions.create({
+          model: config.openai.model,
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um especialista em marketing imobiliário, design gráfico e comunicação visual. Sua tarefa é analisar informações de produtos imobiliários e criar uma estratégia completa de comunicação visual.
 
 Analise cuidadosamente:
 1. Descrição do produto e características
@@ -32,32 +38,34 @@ Analise cuidadosamente:
 4. Orçamento e duração da campanha
 5. Imagens fornecidas pelo cliente
 
-Baseado nessas informações:
+Baseado nessas informações, gere *apenas* um objeto JSON que contenha a estratégia completa de comunicação visual. Não inclua nenhum texto adicional, explicações ou formatação além do JSON.
 
-1. CLASSIFIQUE O PERFIL:
+O JSON deve conter:
+
+1. CLASSIFICAÇÃO DO PERFIL:
 - BAIXO: Empreendimentos populares, preços acessíveis, primeiros imóveis
 - MEDIO: Empreendimentos intermediários, classe média, bom custo-benefício  
 - ALTO: Empreendimentos de luxo, alto padrão, público premium
 
-2. CRIE TEXTOS CRIATIVOS E PERSUASIVOS:
+2. TEXTOS CRIATIVOS E PERSUASIVOS:
 - Títulos chamtivos e diretos (máx 30 caracteres)
 - Subtítulos explicativos (máx 50 caracteres)
 - CTAs impactantes (máx 20 caracteres)
 - Preços/ofertas atrativas
 
-3. SUGIRA CORES ESTRATÉGICAS:
+3. CORES ESTRATÉGICAS:
 - Cores primárias para títulos (baseadas no perfil e imagens)
 - Cores secundárias para fundos e destaques
 - Cores de CTA que geram conversão
 - Cores de fundo que complementam as imagens
 
-4. DEFINA EFEITOS VISUAIS PERSONALIZADOS:
+4. EFEITOS VISUAIS PERSONALIZADOS:
 - Intensidade de blur baseada no estilo
 - Sombras apropriadas para o perfil
 - Transparências que valorizam o conteúdo
 - Bordas e cantos que combinam com o público
 
-5. SUGIRA POSICIONAMENTO ESPECÍFICO DOS ELEMENTOS:
+5. POSICIONAMENTO ESPECÍFICO DOS ELEMENTOS:
 - Coordenadas X,Y para títulos principais
 - Deslocamentos para subtítulos e CTAs
 - Posicionamento estratégico de preços
@@ -65,48 +73,57 @@ Baseado nessas informações:
 - Evitar sobreposições entre elementos
 
 Seja CRIATIVO com cores, efeitos E POSICIONAMENTO. Analise o perfil do cliente e crie uma identidade visual única que maximize conversões.`
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 1000,
-      });
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 1000,
+        });
 
-      const response = completion.choices[0]?.message?.content;
-      if (!response) {
-        throw new Error('No response from OpenAI');
+        const response = completion.choices[0]?.message?.content;
+        if (!response) {
+          throw new Error('No response from OpenAI');
+        }
+
+        // Clean and parse JSON response
+        let cleanResponse = response.trim();
+        
+        // Remove markdown code blocks if present
+        if (cleanResponse.startsWith('```json')) {
+          cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        } else if (cleanResponse.startsWith('```')) {
+          cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
+        }
+        
+        const analysisResult = JSON.parse(cleanResponse) as AIAnalysisResult;
+        
+        logger.info('AI Analysis Result:', analysisResult);
+        
+        // Validate and ensure required fields
+        if (!analysisResult.profile || !['baixo', 'medio', 'alto'].includes(analysisResult.profile)) {
+          throw new Error('Invalid profile classification from AI');
+        }
+
+        logger.info(`AI analysis completed: ${analysisResult.profile} profile with ${analysisResult.confidence}% confidence`);
+        
+        return analysisResult;
+
+      } catch (error) {
+        logger.error(`Error in AI analysis (retry ${retries + 1}/${MAX_RETRIES}):`, error);
+        retries++;
+        if (retries === MAX_RETRIES) {
+          // Fallback analysis based on simple heuristics
+          return this.fallbackAnalysis(productInfo);
+        }
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000 * retries)); // Exponential backoff
       }
-
-      // Clean and parse JSON response
-      let cleanResponse = response.trim();
-      
-      // Remove markdown code blocks if present
-      if (cleanResponse.startsWith('```json')) {
-        cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanResponse.startsWith('```')) {
-        cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      }
-      
-      const analysisResult = JSON.parse(cleanResponse) as AIAnalysisResult;
-      
-      // Validate and ensure required fields
-      if (!analysisResult.profile || !['baixo', 'medio', 'alto'].includes(analysisResult.profile)) {
-        throw new Error('Invalid profile classification from AI');
-      }
-
-      logger.info(`AI analysis completed: ${analysisResult.profile} profile with ${analysisResult.confidence}% confidence`);
-      
-      return analysisResult;
-
-    } catch (error) {
-      logger.error('Error in AI analysis:', error);
-      
-      // Fallback analysis based on simple heuristics
-      return this.fallbackAnalysis(productInfo);
     }
+    // Should not reach here, but for type safety
+    return this.fallbackAnalysis(productInfo);
   }
 
   private buildAnalysisPrompt(productInfo: ProductInfo): string {
@@ -523,22 +540,68 @@ Seja sempre profissional, prestativa e focada em resultados de marketing.`;
     }
   }
 
-  private buildChatPrompt(message: string, productInfo?: ProductInfo, images?: string[]): string {
-    let prompt = `Mensagem do usuário: ${message}`;
+  private buildChatPrompt(
+    message: string, 
+    productInfo?: ProductInfo, 
+    images?: string[]
+  ): OpenAI.Chat.Completions.ChatCompletionContentPart[] {
+    const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
+      { type: 'text', text: `Mensagem do usuário: ${message}` }
+    ];
 
     if (productInfo) {
-      prompt += `\n\nInformações do produto:`;
-      if (productInfo.description) prompt += `\nDescrição: ${productInfo.description}`;
-      if (productInfo.target_audience) prompt += `\nPúblico-alvo: ${productInfo.target_audience}`;
-      if (productInfo.location) prompt += `\nLocalização: ${productInfo.location}`;
-      if (productInfo.budget) prompt += `\nOrçamento: ${productInfo.budget}`;
-      if (productInfo.duration) prompt += `\nDuração: ${productInfo.duration}`;
+      let productText = `\n\nInformações do produto:`;
+      if (productInfo.description) productText += `\nDescrição: ${productInfo.description}`;
+      if (productInfo.target_audience) productText += `\nPúblico-alvo: ${productInfo.target_audience}`;
+      if (productInfo.location) productText += `\nLocalização: ${productInfo.location}`;
+      if (productInfo.budget) productText += `\nOrçamento: ${productInfo.budget}`;
+      if (productInfo.duration) productText += `\nDuração: ${productInfo.duration}`;
+      content.push({ type: 'text', text: productText });
     }
 
     if (images && images.length > 0) {
-      prompt += `\n\nO usuário enviou ${images.length} imagem(ns) do empreendimento.`;
+      content.push({ type: 'text', text: `\n\nO usuário enviou ${images.length} imagem(ns) do empreendimento. Analise-as para criar um layout profissional.` });
+      for (const imagePath of images) {
+        try {
+          let base64Image: string;
+          let mimeType: string;
+
+          if (imagePath.startsWith('data:')) {
+            // It's a data URI
+            const parts = imagePath.match(/^data:(image\/(?:png|jpeg|gif|webp|svg\+xml|bmp));base64,(.*)$/);
+            if (parts && parts.length === 3) {
+              mimeType = parts[1];
+              base64Image = parts[2];
+            } else {
+              logger.warn(`Invalid data URI format for image: ${imagePath.substring(0, 50)}...`);
+              continue; // Skip this image
+            }
+          } else {
+            // Assume it's a file path
+            const imageBuffer = fs.readFileSync(imagePath);
+            base64Image = imageBuffer.toString('base64');
+            // Try to determine mime type from file extension, or default to png
+            const ext = path.extname(imagePath).toLowerCase();
+            if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+            else if (ext === '.gif') mimeType = 'image/gif';
+            else if (ext === '.webp') mimeType = 'image/webp';
+            else if (ext === '.svg') mimeType = 'image/svg+xml';
+            else if (ext === '.bmp') mimeType = 'image/bmp';
+            else mimeType = 'image/png'; // Default
+          }
+
+          content.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${mimeType};base64,${base64Image}`
+            }
+          });
+        } catch (error) {
+          logger.error(`Error reading image file for AI analysis: ${imagePath}`, error);
+        }
+      }
     }
 
-    return prompt;
+    return content;
   }
 }

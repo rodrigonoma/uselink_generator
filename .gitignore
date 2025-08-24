@@ -8,6 +8,8 @@
 
 # Node
 /backend/node_modules
+/backend/output
+/logs
 /node_modules
 /imgly_novo
 npm-debug.log
