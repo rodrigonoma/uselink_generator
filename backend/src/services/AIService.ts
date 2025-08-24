@@ -7,11 +7,21 @@ import { ProductInfo, AIAnalysisResult } from '../models';
 
 export class AIService {
   private openai: OpenAI;
+  private analysisPrompt: string;
 
   constructor() {
     this.openai = new OpenAI({
       apiKey: config.openai.apiKey,
     });
+
+    try {
+      const promptPath = path.join(__dirname, '../prompts/analysis_prompt.txt');
+      this.analysisPrompt = fs.readFileSync(promptPath, 'utf-8');
+    } catch (error) {
+      logger.error('CRITICAL: Could not read analysis prompt file.', error);
+      // Fallback to a very basic prompt if file is missing
+      this.analysisPrompt = 'Você é um assistente de marketing. Analise o produto e retorne um JSON com um perfil (baixo, medio, alto).';
+    }
   }
 
   async analyzeProductProfile(productInfo: ProductInfo): Promise<AIAnalysisResult> {
@@ -22,65 +32,22 @@ export class AIService {
 
     while (retries < MAX_RETRIES) {
       try {
-        const prompt = this.buildAnalysisPrompt(productInfo);
+        const userPrompt = this.buildAnalysisPrompt(productInfo);
         
         const completion = await this.openai.chat.completions.create({
           model: config.openai.model,
           messages: [
             {
               role: 'system',
-              content: `Você é um especialista em marketing imobiliário, design gráfico e comunicação visual. Sua tarefa é analisar informações de produtos imobiliários e criar uma estratégia completa de comunicação visual.
-
-Analise cuidadosamente:
-1. Descrição do produto e características
-2. Público-alvo e perfil econômico
-3. Localização e contexto regional
-4. Orçamento e duração da campanha
-5. Imagens fornecidas pelo cliente
-
-Baseado nessas informações, gere *apenas* um objeto JSON que contenha a estratégia completa de comunicação visual. Não inclua nenhum texto adicional, explicações ou formatação além do JSON.
-
-O JSON deve conter:
-
-1. CLASSIFICAÇÃO DO PERFIL:
-- BAIXO: Empreendimentos populares, preços acessíveis, primeiros imóveis
-- MEDIO: Empreendimentos intermediários, classe média, bom custo-benefício  
-- ALTO: Empreendimentos de luxo, alto padrão, público premium
-
-2. TEXTOS CRIATIVOS E PERSUASIVOS:
-- Títulos chamtivos e diretos (máx 30 caracteres)
-- Subtítulos explicativos (máx 50 caracteres)
-- CTAs impactantes (máx 20 caracteres)
-- Preços/ofertas atrativas
-
-3. CORES ESTRATÉGICAS:
-- Cores primárias para títulos (baseadas no perfil e imagens)
-- Cores secundárias para fundos e destaques
-- Cores de CTA que geram conversão
-- Cores de fundo que complementam as imagens
-
-4. EFEITOS VISUAIS PERSONALIZADOS:
-- Intensidade de blur baseada no estilo
-- Sombras apropriadas para o perfil
-- Transparências que valorizam o conteúdo
-- Bordas e cantos que combinam com o público
-
-5. POSICIONAMENTO ESPECÍFICO DOS ELEMENTOS:
-- Coordenadas X,Y para títulos principais
-- Deslocamentos para subtítulos e CTAs
-- Posicionamento estratégico de preços
-- Ajustes de imagens para melhor foco
-- Evitar sobreposições entre elementos
-
-Seja CRIATIVO com cores, efeitos E POSICIONAMENTO. Analise o perfil do cliente e crie uma identidade visual única que maximize conversões.`
+              content: this.analysisPrompt
             },
             {
               role: 'user',
-              content: prompt
+              content: userPrompt
             }
           ],
-          temperature: 0.3,
-          max_tokens: 1000,
+          temperature: 0.5,
+          max_tokens: 1500, // Increased tokens for more detailed reasoning
         });
 
         const response = completion.choices[0]?.message?.content;
@@ -91,7 +58,6 @@ Seja CRIATIVO com cores, efeitos E POSICIONAMENTO. Analise o perfil do cliente e
         // Clean and parse JSON response
         let cleanResponse = response.trim();
         
-        // Remove markdown code blocks if present
         if (cleanResponse.startsWith('```json')) {
           cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
         } else if (cleanResponse.startsWith('```')) {
@@ -102,7 +68,6 @@ Seja CRIATIVO com cores, efeitos E POSICIONAMENTO. Analise o perfil do cliente e
         
         logger.info('AI Analysis Result:', analysisResult);
         
-        // Validate and ensure required fields
         if (!analysisResult.profile || !['baixo', 'medio', 'alto'].includes(analysisResult.profile)) {
           throw new Error('Invalid profile classification from AI');
         }
@@ -115,80 +80,16 @@ Seja CRIATIVO com cores, efeitos E POSICIONAMENTO. Analise o perfil do cliente e
         logger.error(`Error in AI analysis (retry ${retries + 1}/${MAX_RETRIES}):`, error);
         retries++;
         if (retries === MAX_RETRIES) {
-          // Fallback analysis based on simple heuristics
           return this.fallbackAnalysis(productInfo);
         }
-        // Wait a bit before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000 * retries)); // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, 1000 * retries));
       }
     }
-    // Should not reach here, but for type safety
     return this.fallbackAnalysis(productInfo);
   }
 
   private buildAnalysisPrompt(productInfo: ProductInfo): string {
-    return `Analise o seguinte produto imobiliário e crie uma estratégia completa de comunicação visual:
-
-DESCRIÇÃO: ${productInfo.description || 'Não informado'}
-PÚBLICO-ALVO: ${productInfo.target_audience || 'Não informado'}  
-LOCALIZAÇÃO: ${productInfo.location || 'Não informado'}
-ORÇAMENTO: ${productInfo.budget || 'Não informado'}
-DURAÇÃO: ${productInfo.duration || 'Não informado'}
-NÚMERO DE IMAGENS: ${productInfo.images?.length || 0}
-
-Crie textos CRIATIVOS e PERSUASIVOS para marketing imobiliário. Seja criativo, use linguagem de vendas e marketing que gera conversão.
-
-Responda no seguinte formato JSON:
-{
-  "profile": "baixo|medio|alto",
-  "confidence": 85,
-  "reasoning": "Explicação detalhada da classificação e estratégia criativa",
-  "templateRecommendations": ["template_baixo_feed", "template_baixo_story"],
-  "textSuggestions": {
-    "feedTitle": "Título criativo para feed (máx 25 chars)",
-    "feedSubtitle": "Subtítulo persuasivo feed (máx 40 chars)",
-    "feedCta": "CTA impactante (máx 15 chars)",
-    "storyTitle": "Título criativo para story (máx 25 chars)", 
-    "storySubtitle": "Subtítulo story (máx 40 chars)",
-    "storyCta": "CTA story (máx 15 chars)",
-    "price": "Preço/oferta atrativa"
-  },
-  "colorSuggestions": {
-    "primaryTitle": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 1},
-    "secondaryTitle": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 1},
-    "ctaButton": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 1},
-    "background": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 0.0-1.0}
-  },
-  "visualEffects": {
-    "titleBlur": 0-10,
-    "ctaDropShadow": true/false,
-    "backgroundOpacity": 0.0-1.0,
-    "strokeWidth": 1-5,
-    "cornerRadius": 0-20,
-    "textStroke": true/false
-  },
-  "layoutStrategy": {
-    "titlePriority": 1-5,
-    "imageFocus": true/false,
-    "ctaPosition": "top|center|bottom",
-    "avoidOverlap": true/false
-  },
-  "positioning": {
-    "titleOffset": {"x": -50 a +50, "y": -100 a +100},
-    "subtitleOffset": {"x": -50 a +50, "y": -50 a +50},
-    "ctaOffset": {"x": -100 a +100, "y": -200 a +200},
-    "priceOffset": {"x": -30 a +30, "y": -30 a +30},
-    "imageOffset": {"x": -100 a +100, "y": -100 a +100}
-  }
-}
-
-IMPORTANTE: 
-- Cores devem ser escolhidas baseadas no perfil (baixo=azuis, médio=verdes, alto=dourados/marrons)
-- Efeitos visuais devem ser mais intensos para alto padrão e mais sutis para baixo padrão
-- CTAs devem ter cores vibrantes que contrastem com o fundo
-- Backgrounds devem ser neutros mas que complementem as imagens enviadas
-- POSICIONAMENTO deve ser estratégico: títulos principais podem ser movidos para ganhar destaque, CTAs podem ser reposicionados para melhor conversão, elementos podem ser espaçados para evitar sobreposição
-- Use valores de offset NEGATIVOS para mover elementos para cima/esquerda e POSITIVOS para baixo/direita`;
+    return `Analise o seguinte produto imobiliário e crie uma estratégia completa de comunicação visual:\n\nDESCRIÇÃO: ${productInfo.description || 'Não informado'}\nPÚBLICO-ALVO: ${productInfo.target_audience || 'Não informado'}  \nLOCALIZAÇÃO: ${productInfo.location || 'Não informado'}\nORÇAMENTO: ${productInfo.budget || 'Não informado'}\nDURAÇÃO: ${productInfo.duration || 'Não informado'}\nNÚMERO DE IMAGENS: ${productInfo.images?.length || 0}\n\nCrie textos CRIATIVOS e PERSUASIVOS para marketing imobiliário. Seja criativo, use linguagem de vendas e marketing que gera conversão.\n\nResponda no seguinte formato JSON:\n{\n  "profile": "baixo|medio|alto",\n  "confidence": 85,\n  "reasoning": "Explicação detalhada da classificação e estratégia criativa",\n  "templateRecommendations": ["template_baixo_feed", "template_baixo_story"],\n  "textSuggestions": {\n    "feedTitle": "Título criativo para feed (máx 25 chars)",\n    "feedSubtitle": "Subtítulo persuasivo feed (máx 40 chars)",\n    "feedCta": "CTA impactante (máx 15 chars)",\n    "storyTitle": "Título criativo para story (máx 25 chars)", \n    "storySubtitle": "Subtítulo story (máx 40 chars)",\n    "storyCta": "CTA story (máx 15 chars)",\n    "price": "Preço/oferta atrativa"\n  },\n  "colorSuggestions": {\n    "primaryTitle": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 1},\n    "secondaryTitle": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 1},\n    "ctaButton": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 1},\n    "background": {"r": 0.0-1.0, "g": 0.0-1.0, "b": 0.0-1.0, "a": 0.0-1.0}\n  },\n  "visualEffects": {\n    "titleBlur": 0-10,\n    "ctaDropShadow": true/false,\n    "backgroundOpacity": 0.0-1.0,\n    "strokeWidth": 1-5,\n    "cornerRadius": 0-20,\n    "textStroke": true/false\n  },\n  "layoutStrategy": {\n    "titlePriority": 1-5,\n    "imageFocus": true/false,\n    "ctaPosition": "top|center|bottom",\n    "avoidOverlap": true/false\n  },\n  "positioning": {\n    "titleOffset": {"x": -50 a +50, "y": -100 a +100},\n    "subtitleOffset": {"x": -50 a +50, "y": -50 a +50},\n    "ctaOffset": {"x": -100 a +100, "y": -200 a +200},\n    "priceOffset": {"x": -30 a +30, "y": -30 a +30},\n    "imageOffset": {"x": -100 a +100, "y": -100 a +100}\n  }\n}\n\nIMPORTANTE: \n- Cores devem ser escolhidas baseadas no perfil (baixo=azuis, médio=verdes, alto=dourados/marrons)\n- Efeitos visuais devem ser mais intensos para alto padrão e mais sutis para baixo padrão\n- CTAs devem ter cores vibrantes que contrastem com o fundo\n- Backgrounds devem ser neutros mas que complementem as imagens enviadas\n- POSICIONAMENTO deve ser estratégico: títulos principais podem ser movidos para ganhar destaque, CTAs podem ser reposicionados para melhor conversão, elementos podem ser espaçados para evitar sobreposição\n- Use valores de offset NEGATIVOS para mover elementos para cima/esquerda e POSITIVOS para baixo/direita`;
   }
 
   private fallbackAnalysis(productInfo: ProductInfo): AIAnalysisResult {
@@ -203,19 +104,16 @@ IMPORTANTE:
     const budget = productInfo.budget?.toLowerCase() || '';
     const targetAudience = productInfo.target_audience?.toLowerCase() || '';
 
-    // Palavras-chave para alto padrão
     const luxuryKeywords = ['luxo', 'premium', 'alto padrão', 'exclusivo', 'sofisticado', 'diferenciado'];
     const hasLuxuryKeywords = luxuryKeywords.some(keyword => 
       description.includes(keyword) || targetAudience.includes(keyword)
     );
 
-    // Palavras-chave para baixo padrão
     const popularKeywords = ['popular', 'acessível', 'primeira casa', 'entrada facilitada', 'financiamento'];
     const hasPopularKeywords = popularKeywords.some(keyword => 
       description.includes(keyword) || targetAudience.includes(keyword)
     );
 
-    // Análise de orçamento
     const budgetValue = this.extractBudgetValue(budget);
     
     if (hasLuxuryKeywords || budgetValue > 1000) {
@@ -246,7 +144,6 @@ IMPORTANTE:
         price: profile === 'alto' ? 'A partir de R$ 800.000' : 
                profile === 'medio' ? 'A partir de R$ 400.000' : 
                'A partir de R$ 200.000',
-        // Legacy fields for backward compatibility
         title: this.generateTitleByProfile(profile),
         subtitle: this.generateSubtitleByProfile(profile),
         cta: this.generateCTAByProfile(profile),
@@ -260,7 +157,7 @@ IMPORTANTE:
 
   private extractBudgetValue(budget: string): number {
     const match = budget.match(/(\d+)/);
-    return match ? parseInt(match[1], 10) : 500; // default value
+    return match ? parseInt(match[1], 10) : 500;
   }
 
   private generateTitleByProfile(profile: 'baixo' | 'medio' | 'alto'): string {
@@ -291,8 +188,7 @@ IMPORTANTE:
   }
 
   private generateDynamicColors(profile: 'baixo' | 'medio' | 'alto'): any {
-    // Adicionar variação aleatória às cores base para torná-las únicas
-    const randomVariation = () => Math.random() * 0.2 - 0.1; // -0.1 a +0.1
+    const randomVariation = () => Math.random() * 0.2 - 0.1;
     
     const baseColors = {
       baixo: {
@@ -315,21 +211,20 @@ IMPORTANTE:
       }
     };
 
-    // Garantir que os valores ficam entre 0 e 1
     const clamp = (value: number) => Math.max(0, Math.min(1, value));
     const colors = baseColors[profile];
     
     return {
       primaryTitle: {
         r: clamp(colors.primaryTitle.r),
-        g: clamp(colors.primaryTitle.g), 
+        g: clamp(colors.primaryTitle.g),
         b: clamp(colors.primaryTitle.b),
         a: colors.primaryTitle.a
       },
       secondaryTitle: {
         r: clamp(colors.secondaryTitle.r),
         g: clamp(colors.secondaryTitle.g),
-        b: clamp(colors.secondaryTitle.b), 
+        b: clamp(colors.secondaryTitle.b),
         a: colors.secondaryTitle.a
       },
       ctaButton: {
@@ -348,7 +243,6 @@ IMPORTANTE:
   }
 
   private generateDynamicEffects(profile: 'baixo' | 'medio' | 'alto'): any {
-    // Adicionar variação nos efeitos baseada no perfil
     const randomBool = () => Math.random() > 0.5;
     const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
     
@@ -383,25 +277,24 @@ IMPORTANTE:
   }
 
   private generateDynamicLayoutStrategy(profile: 'baixo' | 'medio' | 'alto'): any {
-    // Generate layout strategy based on profile
     const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
     
     const strategies = {
       baixo: {
-        titlePriority: Math.floor(randomRange(1, 3)), // Lower priority for simpler layouts
-        imageFocus: Math.random() > 0.6, // 40% chance of image focus
+        titlePriority: Math.floor(randomRange(1, 3)),
+        imageFocus: Math.random() > 0.6,
         ctaPosition: ['bottom', 'center'][Math.floor(Math.random() * 2)],
         avoidOverlap: true
       },
       medio: {
-        titlePriority: Math.floor(randomRange(2, 4)), // Medium priority
-        imageFocus: Math.random() > 0.4, // 60% chance of image focus
+        titlePriority: Math.floor(randomRange(2, 4)),
+        imageFocus: Math.random() > 0.4,
         ctaPosition: ['bottom', 'center', 'top'][Math.floor(Math.random() * 3)],
         avoidOverlap: true
       },
       alto: {
-        titlePriority: Math.floor(randomRange(3, 5)), // High priority for sophisticated layouts
-        imageFocus: Math.random() > 0.2, // 80% chance of image focus
+        titlePriority: Math.floor(randomRange(3, 5)),
+        imageFocus: Math.random() > 0.2,
         ctaPosition: ['center', 'top'][Math.floor(Math.random() * 2)],
         avoidOverlap: true
       }
@@ -411,7 +304,6 @@ IMPORTANTE:
   }
 
   private generateDynamicPositioning(profile: 'baixo' | 'medio' | 'alto'): any {
-    // Generate positioning offsets based on profile
     const randomRange = (min: number, max: number) => Math.random() * (max - min) + min;
     
     const positioning = {
@@ -497,23 +389,7 @@ IMPORTANTE:
     });
 
     try {
-      const systemPrompt = `Você é uma assistente de IA especializada em marketing imobiliário no Brasil. Você ajuda corretores e empresas a criar campanhas publicitárias eficazes.
-
-Suas responsabilidades:
-1. Analisar informações de empreendimentos imobiliários
-2. Classificar perfil econômico (baixo, médio, alto padrão)
-3. Sugerir estratégias de marketing personalizadas
-4. Recomendar textos otimizados para conversão
-5. Orientar sobre campanhas digitais eficazes
-
-IMPORTANTE: Quando o usuário enviar imagens e informações do produto, você deve:
-- Reconhecer que recebeu as imagens
-- Analisar as informações fornecidas
-- Classificar o perfil do empreendimento
-- Sugerir estratégias específicas
-- Ser entusiasta sobre gerar campanhas
-
-Seja sempre profissional, prestativa e focada em resultados de marketing.`;
+      const systemPrompt = `Você é uma assistente de IA especializada em marketing imobiliário no Brasil. Você ajuda corretores e empresas a criar campanhas publicitárias eficazes.\n\nSuas responsabilidades:\n1. Analisar informações de empreendimentos imobiliários\n2. Classificar perfil econômico (baixo, médio, alto padrão)\n3. Sugerir estratégias de marketing personalizadas\n4. Recomendar textos otimizados para conversão\n5. Orientar sobre campanhas digitais eficazes\n\nIMPORTANTE: Quando o usuário enviar imagens e informações do produto, você deve:\n- Reconhecer que recebeu as imagens\n- Analisar as informações fornecidas\n- Classificar o perfil do empreendimento\n- Sugerir estratégias específicas\n- Ser entusiasta sobre gerar campanhas\n\nSeja sempre profissional, prestativa e focada em resultados de marketing.`;
 
       const userMessage = this.buildChatPrompt(message, productInfo, images);
 
@@ -567,27 +443,24 @@ Seja sempre profissional, prestativa e focada em resultados de marketing.`;
           let mimeType: string;
 
           if (imagePath.startsWith('data:')) {
-            // It's a data URI
             const parts = imagePath.match(/^data:(image\/(?:png|jpeg|gif|webp|svg\+xml|bmp));base64,(.*)$/);
             if (parts && parts.length === 3) {
               mimeType = parts[1];
               base64Image = parts[2];
             } else {
               logger.warn(`Invalid data URI format for image: ${imagePath.substring(0, 50)}...`);
-              continue; // Skip this image
+              continue;
             }
           } else {
-            // Assume it's a file path
             const imageBuffer = fs.readFileSync(imagePath);
             base64Image = imageBuffer.toString('base64');
-            // Try to determine mime type from file extension, or default to png
             const ext = path.extname(imagePath).toLowerCase();
             if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
             else if (ext === '.gif') mimeType = 'image/gif';
             else if (ext === '.webp') mimeType = 'image/webp';
             else if (ext === '.svg') mimeType = 'image/svg+xml';
             else if (ext === '.bmp') mimeType = 'image/bmp';
-            else mimeType = 'image/png'; // Default
+            else mimeType = 'image/png';
           }
 
           content.push({
